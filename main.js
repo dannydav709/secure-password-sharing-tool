@@ -215,6 +215,8 @@ app.post('/passwords/list', async (req, res, next) => {
     })
 });
 
+
+
 // expressJwt({secret: process.env.JWT_SECRET, algorithms: ["HS256"]})
 
 // Should always come after defining your routes
