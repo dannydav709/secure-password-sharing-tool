@@ -179,10 +179,13 @@ app.post('/passwords/save', async(req, res, next) => {
 })
 
 app.post('/passwords/list', async (req, res, next) => {
+    //  Assuming user is logged in already, so will just validate encryption key
     const userId = req.auth.user_id;
     const encryption_key  = req.body.encryption_key;
 
     const User = models.User;
+    const UserPassword = models.UserPassword;
+
     const user_record = await User.findOne({
         where: {id: userId},
         attributes: ["encryption_key"]
@@ -195,19 +198,27 @@ app.post('/passwords/list', async (req, res, next) => {
         })
     }
 
-    const UserPassword = models.UserPassword;
     const passwords = await UserPassword.findAll({
         where: {owner_user_ID: userId},
-        attributes: ['label', 'URL', 'username', 'password']
+        attributes: ['id', 'label', 'URL', 'username', 'password', 'weak_encryption']
     });
 
-    //  Need to validate encryption key
-
-    passwords.map(element => {
-        element.username = decrypt(element.username, encryption_key);
-        element.password = decrypt(element.password, encryption_key);
-        // return element
-    });
+    passwords.forEach((async curr_password => {
+        if (curr_password.weak_encryption === true){
+            const decrypted_username = decrypt(curr_password.username, user_record.encryption_key)
+            const decrypted_password = decrypt(curr_password.password, user_record.encryption_key)
+            curr_password.set({
+                username: encrypt(decrypted_username, encryption_key),
+                password: encrypt(decrypted_password, encryption_key),
+                weak_encryption: false
+            })
+            await curr_password.save()
+        }
+        curr_password.set({
+            username: decrypt(curr_password.username, encryption_key),
+            password: decrypt(curr_password.password, encryption_key)
+        })
+    })) //  extra parenthesis remove a warning for some reason: "Promise returned from forEach argument is ignored"
 
     res.json({
         message: "Passwords list",
@@ -215,7 +226,63 @@ app.post('/passwords/list', async (req, res, next) => {
     })
 });
 
+app.post('/passwords/share-passwords', async (req, res, next) => {
+    const {password_id, encryption_key, email} = req.body;
+    const user_id = req.auth.user_id;
+    const UserPassword = models.UserPassword;
+    const User = models.User;
 
+    //  Validate encryption_key entered by sharer is correct
+    const sharer_record = await User.findOne({
+        where: {id: user_id},
+        attributes: ["encryption_key"]
+    })
+    const valid_encryption_key = await bcrypt.compare(encryption_key, sharer_record.encryption_key)
+    if (!valid_encryption_key){
+        res.status(400);
+        res.json({
+            message: 'Not a valid encryption key (in share-passwords handler)'
+        })
+    }
+
+    const password_to_share = await UserPassword.findOne({
+        where: {owner_user_ID: user_id, id: password_id},
+        // attributes: ['URL', 'username', 'password'] //   Wrong because we want to share all info except ID of pass.
+        attributes: ['label', 'URL', 'username', 'password']
+
+    })
+    if (!password_to_share){
+        res.status(400);
+        return res.json({message: "Password doesn't exist, or you are trying to access a password that isn't yours to share"})
+    }
+
+    const user_we_are_sharing_with = await User.findOne({
+        where: {email: email},
+        attributes: ['id', 'email', 'encryption_key']
+    });
+    if (!user_we_are_sharing_with){
+        res.status(400);
+        return res.json({message: "User with whom you want to share your password doesn't exist"})
+    }
+
+    const recipients_password = {
+        owner_user_ID: user_we_are_sharing_with.id,
+        label: password_to_share.label,
+        URL: password_to_share.URL,
+        // decrypting username and password with sharer's e-key, and re-encrypting with the hashed-e-key of recipient
+        username: encrypt(decrypt(password_to_share.username, encryption_key), user_we_are_sharing_with.encryption_key),
+        password: encrypt(decrypt(password_to_share.password, encryption_key), user_we_are_sharing_with.encryption_key),
+        shared_by_user_ID: user_id,
+        weak_encryption: true
+    }
+    await UserPassword.create(recipients_password)
+    res.status(201) //  Created - The request succeeded, and a new resource was created as a result.
+    return res.json ({
+        message: "Successfully shared password"
+    })
+
+
+})
 
 // expressJwt({secret: process.env.JWT_SECRET, algorithms: ["HS256"]})
 

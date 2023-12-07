@@ -21,7 +21,8 @@ module.exports = (sequelize, DataTypes) => {
     username: DataTypes.STRING,
     password: DataTypes.STRING,
     shared_by_user_ID: DataTypes.INTEGER,
-    label: DataTypes.STRING
+    label: DataTypes.STRING,
+    weak_encryption: DataTypes.BOOLEAN
   }, {
     sequelize,
     modelName: 'UserPassword',
