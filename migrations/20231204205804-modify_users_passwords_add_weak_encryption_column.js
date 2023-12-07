@@ -12,6 +12,14 @@ module.exports = {
           defaultValue: false
         }
     );
+    await queryInterface.addColumn(
+        'UserPasswords',
+        'id_of_original_password',
+        {
+            type: Sequelize.INTEGER,
+            defaultValue: null
+        }
+    )
   },
 
   async down (queryInterface, Sequelize) {
@@ -19,6 +27,9 @@ module.exports = {
         'UserPasswords',
         'weak_encryption'
     );
-
+    await queryInterface.removeColumn(
+        'UserPasswords',
+        'id_of_original_password'
+    );
   }
 };

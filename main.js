@@ -203,22 +203,49 @@ app.post('/passwords/list', async (req, res, next) => {
         attributes: ['id', 'label', 'URL', 'username', 'password', 'weak_encryption']
     });
 
-    passwords.forEach((async curr_password => {
-        if (curr_password.weak_encryption === true){
-            const decrypted_username = decrypt(curr_password.username, user_record.encryption_key)
-            const decrypted_password = decrypt(curr_password.password, user_record.encryption_key)
+    /*
+    * This code for some reason made it that the first time a recipient of a new password checks their passwords list,
+    * the username and password are still encrypted in some way. Only after they run the passwords list request a second
+    * time does the most recently received password appear correctly. At some point, try to understand why, for the sake
+    * of learning.
+    * */
+
+    // passwords.forEach(async curr_password => {
+    //     if (curr_password.weak_encryption === true){
+    //         const decrypted_username = decrypt(curr_password.username, user_record.encryption_key)
+    //         const decrypted_password = decrypt(curr_password.password, user_record.encryption_key)
+    //         curr_password.set({
+    //             username: encrypt(decrypted_username, encryption_key),
+    //             password: encrypt(decrypted_password, encryption_key),
+    //             weak_encryption: false
+    //         })
+    //         await curr_password.save()
+    //     }
+    //     curr_password.set({
+    //         username: decrypt(curr_password.username, encryption_key),
+    //         password: decrypt(curr_password.password, encryption_key)
+    //     })
+    // })
+
+    for (const curr_password of passwords) {
+        if (curr_password.weak_encryption === true) {
+            const decrypted_username = decrypt(curr_password.username, user_record.encryption_key);
+            const decrypted_password = decrypt(curr_password.password, user_record.encryption_key);
+
             curr_password.set({
                 username: encrypt(decrypted_username, encryption_key),
                 password: encrypt(decrypted_password, encryption_key),
                 weak_encryption: false
-            })
-            await curr_password.save()
+            });
+
+            await curr_password.save();
         }
+
         curr_password.set({
             username: decrypt(curr_password.username, encryption_key),
             password: decrypt(curr_password.password, encryption_key)
-        })
-    })) //  extra parenthesis remove a warning for some reason: "Promise returned from forEach argument is ignored"
+        });
+    }
 
     res.json({
         message: "Passwords list",
@@ -265,7 +292,19 @@ app.post('/passwords/share-passwords', async (req, res, next) => {
         return res.json({message: "User with whom you want to share your password doesn't exist"})
     }
 
-    const recipients_password = {
+    const password_already_shared_before = await UserPassword.findOne({
+        where: {
+            owner_user_ID: user_we_are_sharing_with.id,
+            id_of_original_password: password_id
+        },
+        attributes: ['id']
+    })
+    if (password_already_shared_before){
+        res.status(400);
+        return res.json({message: "This password was already shared with the user!"})
+    }
+
+    const recipients_new_password = {
         owner_user_ID: user_we_are_sharing_with.id,
         label: password_to_share.label,
         URL: password_to_share.URL,
@@ -273,9 +312,10 @@ app.post('/passwords/share-passwords', async (req, res, next) => {
         username: encrypt(decrypt(password_to_share.username, encryption_key), user_we_are_sharing_with.encryption_key),
         password: encrypt(decrypt(password_to_share.password, encryption_key), user_we_are_sharing_with.encryption_key),
         shared_by_user_ID: user_id,
-        weak_encryption: true
+        weak_encryption: true,
+        id_of_original_password: password_id
     }
-    await UserPassword.create(recipients_password)
+    await UserPassword.create(recipients_new_password)
     res.status(201) //  Created - The request succeeded, and a new resource was created as a result.
     return res.json ({
         message: "Successfully shared password"
